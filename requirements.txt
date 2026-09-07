@@ -1,0 +1,6 @@
+# The tracer, SDK, cost, eval, drift, alerting and CLI use only the Python
+# standard library. The only runtime dependency is the dashboard.
+streamlit>=1.30
+
+# Optional, for the property-based test in tests/:
+#   pip install hypothesis
