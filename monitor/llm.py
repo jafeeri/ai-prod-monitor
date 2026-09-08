@@ -1,9 +1,11 @@
-"""Provider-agnostic LLM client. One function, three backends, zero deps.
+"""Provider-agnostic LLM client. One function, any backend, zero deps.
 
-    MONITOR_LLM = mock (default) | ollama | anthropic
+    MONITOR_LLM = mock (default) | ollama | openai | anthropic | gemini
 
-Returns a uniform dict so the tracer always gets tokens + model, no matter the
-backend:  {"text", "model", "tokens_in", "tokens_out", "system"}.
+Bring your own model: a local one through Ollama, or OpenAI / Anthropic / Gemini
+through their API. Every backend returns the same uniform dict so the tracer
+always gets tokens + model:  {"text", "model", "tokens_in", "tokens_out", "system"}.
+Keys come from the environment (OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY).
 """
 from __future__ import annotations
 
@@ -83,7 +85,59 @@ def _anthropic(prompt: str, model: str | None) -> dict:
     }
 
 
-_BACKENDS = {"mock": _mock, "ollama": _ollama, "anthropic": _anthropic}
+def _openai(prompt: str, model: str | None) -> dict:
+    key = os.environ.get("OPENAI_API_KEY")
+    if not key:
+        raise RuntimeError("MONITOR_LLM=openai but OPENAI_API_KEY is not set")
+    model = model or "gpt-4o-mini"
+    body = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/chat/completions", data=body,
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
+    )
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        r = json.loads(resp.read())
+    text = r["choices"][0]["message"]["content"]
+    usage = r.get("usage", {})
+    return {
+        "text": text,
+        "model": r.get("model", model),
+        "tokens_in": int(usage.get("prompt_tokens", 0)),
+        "tokens_out": int(usage.get("completion_tokens", 0)),
+        "system": "openai",
+    }
+
+
+def _gemini(prompt: str, model: str | None) -> dict:
+    key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if not key:
+        raise RuntimeError("MONITOR_LLM=gemini but GEMINI_API_KEY is not set")
+    model = model or "gemini-1.5-flash"
+    # key goes in a header, not the URL, so it never lands in logs/history
+    req = urllib.request.Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        data=json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode(),
+        headers={"Content-Type": "application/json", "x-goog-api-key": key},
+    )
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        r = json.loads(resp.read())
+    cands = r.get("candidates", [])
+    text = "".join(p.get("text", "") for p in cands[0]["content"]["parts"]) if cands else ""
+    um = r.get("usageMetadata", {})
+    return {
+        "text": text,
+        "model": model,
+        "tokens_in": int(um.get("promptTokenCount", 0)),
+        "tokens_out": int(um.get("candidatesTokenCount", 0)),
+        "system": "gemini",
+    }
+
+
+_BACKENDS = {"mock": _mock, "ollama": _ollama, "openai": _openai,
+             "anthropic": _anthropic, "gemini": _gemini}
 
 
 def complete(prompt: str, model: str | None = None) -> dict:

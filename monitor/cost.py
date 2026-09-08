@@ -12,10 +12,20 @@ from __future__ import annotations
 from . import store
 
 # model -> (input $/1M tokens, output $/1M tokens). Verify before relying on $.
+# These are editable defaults; providers change prices. Add your own models here.
 PRICING: dict[str, tuple[float, float]] = {
+    # Anthropic
     "claude-opus-5":   (15.00, 75.00),
     "claude-sonnet-5": (3.00, 15.00),
     "claude-haiku-4-5-20251001": (1.00, 5.00),
+    # OpenAI
+    "gpt-4o":          (2.50, 10.00),
+    "gpt-4o-mini":     (0.15, 0.60),
+    # Google Gemini
+    "gemini-1.5-pro":   (1.25, 5.00),
+    "gemini-1.5-flash": (0.075, 0.30),
+    "gemini-2.0-flash": (0.10, 0.40),
+    # Local / free
     "mock-1":          (0.0, 0.0),
     "llama3.2":        (0.0, 0.0),
 }
